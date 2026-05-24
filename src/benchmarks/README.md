@@ -36,6 +36,7 @@ interface Benchmark {
 | `locomo` | GitHub snap-research/locomo | Long context memory benchmark |
 | `longmemeval` | HuggingFace xiaowu0162/longmemeval-cleaned | Long-term memory evaluation |
 | `convomem` | HuggingFace Salesforce/ConvoMem | Conversational memory benchmark |
+| `beam-1m` / `beam-10m` | HuggingFace Mohammadta/BEAM | Beyond a Million Tokens benchmark (1M and 10M token tiers) |
 
 ## Question Types
 
@@ -67,3 +68,17 @@ interface Benchmark {
 | `changing_evidence` | change | Information updates |
 | `implicit_connection_evidence` | implicit | Implicit reasoning |
 | `abstention_evidence` | abstain | Unanswerable questions |
+
+### BEAM
+| Type | Alias | Description |
+|------|-------|-------------|
+| `abstention` | abstain | Withhold answers when evidence is missing |
+| `contradiction_resolution` | contradict | Detect and reconcile inconsistent statements |
+| `event_ordering` | order | Reconstruct event or information order |
+| `information_extraction` | extract | Recall entities and factual details |
+| `instruction_following` | instruction | Follow sustained user instructions |
+| `knowledge_update` | update | Retain updated facts over stale facts |
+| `multi_session_reasoning` | multi | Reason across non-adjacent dialogue segments |
+| `preference_following` | preference | Adapt to evolving user preferences |
+| `summarization` | summary | Summarize dialogue content |
+| `temporal_reasoning` | temporal | Reason about explicit and implicit time relations |

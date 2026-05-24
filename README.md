@@ -74,7 +74,7 @@ GOOGLE_API_KEY=
 
 ```
 -p, --provider         Memory provider (supermemory, mem0, zep)
--b, --benchmark        Benchmark (locomo, longmemeval, convomem)
+-b, --benchmark        Benchmark (locomo, longmemeval, convomem, beam-1m, beam-10m)
 -j, --judge            Judge model (gpt-4o, sonnet-4, gemini-2.5-flash, etc.)
 -r, --run-id           Run identifier (auto-generated if omitted)
 -m, --answering-model  Model for answer generation (default: gpt-4o)

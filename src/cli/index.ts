@@ -151,10 +151,17 @@ Available benchmark datasets for evaluation:
                  Tests: user facts, assistant facts, preferences, implicit connections
                  Source: HuggingFace Salesforce/ConvoMem (downloaded on first use)
 
+  beam           BEAM - Beyond a Million Tokens benchmark
+                 Tests: abstention, contradiction, event ordering, extraction, instructions, knowledge update, multi-session, preferences, summarization, temporal
+                 Source: HuggingFace Mohammadta/BEAM (downloaded on first use)
+                 Scales: beam-1m (700 q / 35 chats), beam-10m (200 q / 10 chats)
+
 Usage:
   -b locomo        Run LoCoMo benchmark
   -b longmemeval   Run LongMemEval benchmark
   -b convomem      Run ConvoMem benchmark
+  -b beam-1m       Run BEAM 1M-token tier
+  -b beam-10m      Run BEAM 10M-token tier
 `)
 }
 
