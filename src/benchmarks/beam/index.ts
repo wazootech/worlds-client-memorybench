@@ -8,6 +8,7 @@ import type {
   UnifiedSession,
 } from "../../types/unified"
 import { logger } from "../../utils/logger"
+import { formatBeamDate, parseBeamTimeAnchor } from "../../prompts/beam"
 import type { BeamBatch, BeamChatFile, BeamProbingQuestionsFile, BeamScale } from "./types"
 
 const DEFAULT_DATA_PATH = "./data/benchmarks/beam/chats"
@@ -92,7 +93,17 @@ function createGroundTruth(question: unknown): string {
   if (typeof question === "object" && question !== null) {
     const record = question as Record<string, unknown>
     const answer = getQuestionAnswer(record)
-    return answer || JSON.stringify(question)
+    if (answer) return answer
+
+    // Fall back to the rubric so retrieval-eval gets a useful expected-answer
+    // signal for types like instruction_following/preference_following that
+    // describe expected behavior via rubric items instead of a single answer.
+    const rubric = record.rubric
+    if (Array.isArray(rubric) && rubric.every((item) => typeof item === "string")) {
+      return rubric.join("\n")
+    }
+
+    return JSON.stringify(question)
   }
 
   return JSON.stringify(question)
@@ -206,6 +217,24 @@ export class BeamBenchmark implements Benchmark {
     const sessions: UnifiedSession[] = []
 
     for (const batch of batches) {
+      // mem0's `get_time_anchor_epoch` finds the earliest non-null `time_anchor`
+      // across all messages in a batch and tags every memory derived from that
+      // batch with it. Most turns in BEAM don't carry their own anchor, so
+      // hoisting the batch-level anchor here gives dates to every session in
+      // the batch (matching mem0's per-memory dating).
+      let batchTimeAnchor: string | null | undefined = batch.time_anchor ?? null
+      if (!batchTimeAnchor) {
+        for (const turn of batch.turns) {
+          const msgWithAnchor = turn.find((m) => m.time_anchor)
+          if (msgWithAnchor?.time_anchor) {
+            batchTimeAnchor = msgWithAnchor.time_anchor
+            break
+          }
+        }
+      }
+      const batchDateIso = parseBeamTimeAnchor(batchTimeAnchor)
+      const batchDateFormatted = batchDateIso ? formatBeamDate(batchDateIso) : undefined
+
       for (let turnIndex = 0; turnIndex < batch.turns.length; turnIndex++) {
         const turn = batch.turns[turnIndex]
         const messages = turn
@@ -229,7 +258,12 @@ export class BeamBenchmark implements Benchmark {
             chatId,
             batchNumber: batch.batch_number,
             turnIndex: turnIndex + 1,
-            timeAnchor: batch.time_anchor,
+            // Match LocoMo / LongMemEval: `date` (ISO) + `formattedDate`
+            // (readable). The Supermemory provider reads these fields to
+            // (a) attach `metadata.date` to the document and (b) prefix the
+            // ingested content with a natural-language date sentence.
+            date: batchDateIso,
+            formattedDate: batchDateFormatted,
           },
         })
       }

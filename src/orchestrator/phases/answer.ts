@@ -11,6 +11,7 @@ import { config } from "../../utils/config"
 import { logger } from "../../utils/logger"
 import { getModelConfig, ModelConfig, DEFAULT_ANSWERING_MODEL } from "../../utils/models"
 import { buildDefaultAnswerPrompt } from "../../prompts/defaults"
+import { buildBeamAnswerPrompt } from "../../prompts/beam"
 import { buildContextString } from "../../types/prompts"
 import { ConcurrentExecutor } from "../concurrent"
 import { resolveConcurrency } from "../../types/concurrency"
@@ -119,8 +120,24 @@ export async function runAnswerPhase(
         const context: unknown[] = searchData.results || []
         const questionDate = checkpoint.questions[question.questionId]?.questionDate
 
-        const basePrompt = buildAnswerPrompt(question.question, [], questionDate, provider)
-        const prompt = buildAnswerPrompt(question.question, context, questionDate, provider)
+        // BEAM uses mem0's answer-generation prompt verbatim so retrieval +
+        // judging numbers are apples-to-apples with their published BEAM
+        // results. The provider-specific prompt is intentionally bypassed.
+        let basePrompt: string
+        let prompt: string
+        if (benchmark.name.startsWith("beam")) {
+          const sessions = benchmark.getHaystackSessions(question.questionId)
+          const sessionDateMap = new Map<string, string>()
+          for (const s of sessions) {
+            const date = s.metadata?.date
+            if (typeof date === "string") sessionDateMap.set(s.sessionId, date)
+          }
+          basePrompt = buildBeamAnswerPrompt(question.question, [], sessionDateMap)
+          prompt = buildBeamAnswerPrompt(question.question, context, sessionDateMap)
+        } else {
+          basePrompt = buildAnswerPrompt(question.question, [], questionDate, provider)
+          prompt = buildAnswerPrompt(question.question, context, questionDate, provider)
+        }
 
         const basePromptTokens = countTokens(basePrompt, modelConfig)
         const promptTokens = countTokens(prompt, modelConfig)
