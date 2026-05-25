@@ -1,3 +1,5 @@
+import { mkdir, rm } from "node:fs/promises"
+import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { Client } from "@worlds/client"
 import { ComunicaSparqlEngine } from "@worlds/client/adapters/comunica"
@@ -19,9 +21,9 @@ import { WORLDS_PROMPTS } from "./prompts"
  * WorldsProvider implements the Provider interface for @worlds/client.
  *
  * @worlds/client is a graph-backed memory store with RDF import, semantic
- * search, and SPARQL query capabilities. This provider uses an in-memory
- * LibSQL database, matching the approach in worlds-client-evals for
- * deterministic, self-contained eval runs.
+ * search, and SPARQL query capabilities. This provider uses file-backed
+ * LibSQL databases so completed ingest/index phases can be reused when a run
+ * is resumed.
  */
 export class WorldsProvider implements Provider {
   name = "worlds"
@@ -32,27 +34,39 @@ export class WorldsProvider implements Provider {
     indexing: 10,
   }
 
-  private client: Client | null = null
-  private documentIds: string[] = []
+  private clients = new Map<string, Client>()
+  private documentIds = new Map<string, string[]>()
+  private baseDir = join(process.cwd(), "data", "providers", "worlds")
 
   async initialize(config: ProviderConfig): Promise<void> {
-    const libsqlClient = createClient({ url: "file::memory:" })
+    await mkdir(this.baseDir, { recursive: true })
+    this.clients.clear()
+    this.documentIds.clear()
+    logger.info(`Initialized Worlds provider with file-backed LibSQL at ${this.baseDir}`)
+  }
+
+  private async getClient(containerTag: string): Promise<Client> {
+    const existing = this.clients.get(containerTag)
+    if (existing) return existing
+
+    await mkdir(this.baseDir, { recursive: true })
+    const dbPath = join(this.baseDir, `${sanitizePath(containerTag)}.db`)
+    const libsqlClient = createClient({ url: `file:${dbPath}` })
     const queryEngine = new QueryEngine()
-    this.client = new Client(
+    const client = new Client(
       await createLibsqlClientOptions({
         client: libsqlClient,
         createSparqlEngine: ({ libsqlStore }) =>
           new ComunicaSparqlEngine({ queryEngine, store: libsqlStore }),
       })
     )
-    this.documentIds = []
-    logger.info(`Initialized Worlds provider with in-memory LibSQL`)
+    this.clients.set(containerTag, client)
+    return client
   }
 
   async ingest(sessions: UnifiedSession[], options: IngestOptions): Promise<IngestResult> {
-    if (!this.client) throw new Error("Provider not initialized")
-
-    this.documentIds = []
+    const client = await this.getClient(options.containerTag)
+    const ids = this.documentIds.get(options.containerTag) ?? []
 
     for (const session of sessions) {
       const sessionId = session.sessionId
@@ -89,15 +103,16 @@ export class WorldsProvider implements Provider {
         ...metadataTriples,
       ].join("\n")
 
-      await this.client.import({
+      await client.import({
         source: { kind: "serialized", data: turtle, contentType: "text/turtle" },
       })
 
-      this.documentIds.push(sessionId)
+      ids.push(sessionId)
       logger.debug(`Ingested session ${sessionId} with ${session.messages.length} messages`)
     }
 
-    return { documentIds: this.documentIds }
+    this.documentIds.set(options.containerTag, ids)
+    return { documentIds: sessions.map((session) => session.sessionId) }
   }
 
   async awaitIndexing(
@@ -105,10 +120,10 @@ export class WorldsProvider implements Provider {
     containerTag: string,
     onProgress?: IndexingProgressCallback
   ): Promise<void> {
-    if (!this.client) throw new Error("Provider not initialized")
+    const client = await this.getClient(containerTag)
     // Rebuild the derived FTS/vector search index so that newly ingested
     // triples are discoverable via client.search().
-    await this.client.rebuildSearchIndex()
+    await client.rebuildSearchIndex()
     onProgress?.({
       completedIds: result.documentIds,
       failedIds: [],
@@ -118,9 +133,9 @@ export class WorldsProvider implements Provider {
   }
 
   async search(query: string, options: SearchOptions): Promise<unknown[]> {
-    if (!this.client) throw new Error("Provider not initialized")
+    const client = await this.getClient(options.containerTag)
 
-    const response = await this.client.search({ query })
+    const response = await client.search({ query })
 
     return (response.results ?? []).map((r) => ({
       sessionId: r.id,
@@ -132,11 +147,17 @@ export class WorldsProvider implements Provider {
     }))
   }
 
-  async clear(_containerTag: string): Promise<void> {
-    this.client = null
-    this.documentIds = []
-    logger.info("Cleared Worlds in-memory provider state")
+  async clear(containerTag: string): Promise<void> {
+    this.clients.delete(containerTag)
+    this.documentIds.delete(containerTag)
+    const dbPath = join(this.baseDir, `${sanitizePath(containerTag)}.db`)
+    await rm(dbPath, { force: true })
+    logger.info(`Cleared Worlds provider state for ${containerTag}`)
   }
+}
+
+function sanitizePath(input: string): string {
+  return input.replace(/[^a-zA-Z0-9_.-]/g, "_")
 }
 
 export default WorldsProvider

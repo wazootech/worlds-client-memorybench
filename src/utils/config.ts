@@ -15,7 +15,7 @@ export const config: Config = {
   zepApiKey: process.env.ZEP_API_KEY || "",
   openaiApiKey: process.env.OPENAI_API_KEY || "",
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
-  googleApiKey: process.env.GOOGLE_API_KEY || "",
+  googleApiKey: process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "",
 }
 
 export function getProviderConfig(provider: string): { apiKey: string; baseUrl?: string } {
