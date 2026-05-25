@@ -287,7 +287,12 @@ export class HybridSearchEngine {
     }
   }
 
-  search(containerTag: string, queryEmbedding: number[], query: string, limit: number): SearchResult[] {
+  search(
+    containerTag: string,
+    queryEmbedding: number[],
+    query: string,
+    limit: number
+  ): SearchResult[] {
     const container = this.containers.get(containerTag)
     if (!container || container.chunks.size === 0) return []
 
