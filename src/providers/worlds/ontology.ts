@@ -52,10 +52,10 @@ export const SKOS = Object.freeze({
 } as const)
 
 export const WORLDS = Object.freeze({
-  _iri: "https://worlds.tech/ns/memory#",
-  claimType: "https://worlds.tech/ns/memory#claimType",
-  confidence: "https://worlds.tech/ns/memory#confidence",
-  sourceSpan: "https://worlds.tech/ns/memory#sourceSpan",
+  _iri: "https://worlds.wazoo.dev/ns/memory#",
+  claimType: "https://worlds.wazoo.dev/ns/memory#claimType",
+  confidence: "https://worlds.wazoo.dev/ns/memory#confidence",
+  sourceSpan: "https://worlds.wazoo.dev/ns/memory#sourceSpan",
 } as const)
 
 export const TURTLE_PREFIXES = [
