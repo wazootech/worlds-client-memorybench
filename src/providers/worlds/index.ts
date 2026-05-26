@@ -139,23 +139,48 @@ export class WorldsProvider implements Provider {
     onProgress?: IndexingProgressCallback
   ): Promise<void> {
     const client = await this.getClient(containerTag)
-    // Rebuild the derived FTS/vector search index so that newly ingested
-    // triples are discoverable via client.search().
-    await client.rebuildSearchIndex()
+    const indexResult = await client.rebuildSearchIndex()
+    logger.info(
+      `Worlds: rebuilt search index for ${containerTag} — ` +
+      `${indexResult.processedQuadCount} quads processed, ${indexResult.chunkRowCount} chunk rows`
+    )
     onProgress?.({
       completedIds: result.documentIds,
       failedIds: [],
       total: result.documentIds.length,
     })
-    logger.info(`Worlds: indexing complete for container ${containerTag}`)
   }
 
   async search(query: string, options: SearchOptions): Promise<unknown[]> {
     const client = await this.getClient(options.containerTag)
 
+    // Try full query first. FTS5 uses AND between terms after stopword removal,
+    // so long questions often match nothing. Fall back to per-term OR-style
+    // search and merge via best-score dedup.
     const response = await client.search({ query })
+    let results = response.results ?? []
 
-    return (response.results ?? []).map((r) => ({
+    if (results.length === 0) {
+      const terms = extractContentTerms(query)
+      if (terms.length > 1) {
+        const seen = new Map<string, (typeof results)[0]>()
+        for (const term of terms) {
+          const partial = await client.search({ query: term })
+          for (const r of partial.results ?? []) {
+            const existing = seen.get(r.id)
+            if (!existing || r.score > existing.score) {
+              seen.set(r.id, r)
+            }
+          }
+        }
+        results = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, 100)
+        logger.info(`Worlds search broadened: "${query.slice(0, 50)}…" → ${terms.length} terms → ${results.length} results`)
+      }
+    } else {
+      logger.debug(`Worlds search: "${query.slice(0, 50)}…" → ${results.length} results`)
+    }
+
+    return results.map((r) => ({
       sessionId: r.id,
       text: r.text,
       score: r.score,
@@ -172,6 +197,22 @@ export class WorldsProvider implements Provider {
     await rm(dbPath, { force: true })
     logger.info(`Cleared Worlds provider state for ${containerTag}`)
   }
+}
+
+const STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
+  "did", "do", "does", "for", "from", "had", "has", "have", "how", "i",
+  "if", "in", "into", "is", "it", "its", "me", "my", "not", "of", "on",
+  "or", "our", "please", "that", "the", "their", "these", "those", "this",
+  "to", "us", "was", "we", "were", "what", "when", "where", "which", "who",
+  "why", "with", "you", "your",
+])
+
+function extractContentTerms(query: string): string[] {
+  return query
+    .split(/\s+/)
+    .map((t) => t.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t))
 }
 
 function sanitizePath(input: string): string {
