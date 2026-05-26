@@ -16,6 +16,8 @@ import type {
 import type { UnifiedSession } from "../../types/unified"
 import { logger } from "../../utils/logger"
 import { WORLDS_PROMPTS } from "./prompts"
+import { TURTLE_PREFIXES, RDF, SCHEMA, PROV, XSD } from "./ontology"
+import { validateGraph } from "./shapes"
 
 /**
  * WorldsProvider implements the Provider interface for @worlds/client.
@@ -69,50 +71,66 @@ export class WorldsProvider implements Provider {
     const ids = this.documentIds.get(options.containerTag) ?? []
 
     for (const session of sessions) {
-      const sessionId = session.sessionId
-
-      // Build Turtle RDF from the session's messages.
-      // Each message becomes rdf:Statement quads in the graph.
-      const triples = session.messages.map((msg, idx) => {
-        const msgUri = `urn:session:${sessionId}/msg/${idx}`
-        const escapedContent = (msg.content as string)
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"')
-          .replace(/\n/g, "\\n")
-        return [
-          `<${msgUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/1999/02/22-rdf-syntax-ns#Statement> .`,
-          `<${msgUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate> <http://schema.org/text> .`,
-          `<${msgUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#object> "${escapedContent}" .`,
-          `<${msgUri}> <http://schema.org/role> "${msg.role}" .`,
-        ].join("\n")
-      })
-
-      const date =
-        (session.metadata?.formattedDate as string) ||
-        (session.metadata?.date as string) ||
-        "unknown"
-      const metadataTriples = [
-        `<urn:session:${sessionId}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://schema.org/Conversation> .`,
-        `<urn:session:${sessionId}> <http://schema.org/date> "${date}" .`,
-      ]
-
-      const turtle = [
-        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .",
-        "@prefix schema: <http://schema.org/> .",
-        ...triples,
-        ...metadataTriples,
-      ].join("\n")
+      const turtle = this.formatSessionForIngestion(session)
 
       await client.import({
         source: { kind: "serialized", data: turtle, contentType: "text/turtle" },
       })
 
-      ids.push(sessionId)
-      logger.debug(`Ingested session ${sessionId} with ${session.messages.length} messages`)
+      ids.push(session.sessionId)
+      logger.debug(`Ingested session ${session.sessionId} with ${session.messages.length} messages`)
     }
 
     this.documentIds.set(options.containerTag, ids)
     return { documentIds: sessions.map((session) => session.sessionId) }
+  }
+
+  private formatSessionForIngestion(session: UnifiedSession): string {
+    const { sessionId, messages, metadata } = session
+    const sessionUri = `urn:session:${sessionId}`
+
+    const date =
+      (metadata?.formattedDate as string) ||
+      (metadata?.date as string) ||
+      "unknown"
+
+    const lines: string[] = [TURTLE_PREFIXES, ""]
+
+    // Session node: schema:Conversation + prov:Activity
+    lines.push(
+      `<${sessionUri}> <${RDF.type}> <${SCHEMA.Conversation}> .`,
+      `<${sessionUri}> <${RDF.type}> <${PROV.Activity}> .`,
+      `<${sessionUri}> <${SCHEMA.dateCreated}> "${date}" .`,
+    )
+
+    // Message nodes with typed predicates and provenance
+    for (let idx = 0; idx < messages.length; idx++) {
+      const msg = messages[idx]
+      const msgUri = `${sessionUri}/msg/${idx}`
+      const escapedContent = escapeTurtleLiteral(msg.content as string)
+
+      lines.push(
+        "",
+        `<${sessionUri}> <${SCHEMA.hasPart}> <${msgUri}> .`,
+        `<${msgUri}> <${RDF.type}> <${SCHEMA.Message}> .`,
+        `<${msgUri}> <${RDF.type}> <${PROV.Entity}> .`,
+        `<${msgUri}> <${SCHEMA.text}> "${escapedContent}" .`,
+        `<${msgUri}> <${SCHEMA.position}> "${idx}"^^<${XSD.integer}> .`,
+        `<${msgUri}> <${SCHEMA.author}> "${msg.role}" .`,
+        `<${msgUri}> <${PROV.wasGeneratedBy}> <${sessionUri}> .`,
+      )
+    }
+
+    const turtle = lines.join("\n")
+
+    const validation = validateGraph(turtle)
+    if (!validation.valid) {
+      logger.warn(
+        `SHACL validation warnings for session ${sessionId}: ${validation.errors.join("; ")}`
+      )
+    }
+
+    return turtle
   }
 
   async awaitIndexing(
@@ -158,6 +176,15 @@ export class WorldsProvider implements Provider {
 
 function sanitizePath(input: string): string {
   return input.replace(/[^a-zA-Z0-9_.-]/g, "_")
+}
+
+function escapeTurtleLiteral(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
 }
 
 export default WorldsProvider
