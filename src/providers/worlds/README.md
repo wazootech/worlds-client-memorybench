@@ -6,20 +6,22 @@ Adapter for `@worlds/client` (graph-backed memory / RAG provider) in MemoryBench
 
 | Variable | Required | Description |
 |----------|----------|-------------|
+| `GOOGLE_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | **Yes** | Gemini text-embedding-004 for search vectors + judge/answer LLM |
 | `OPENAI_API_KEY` | For judge/answer | Used by the judge LLM when evaluating answers |
 | `ANTHROPIC_API_KEY` | Alt judge | Alternative judge backend |
-| `GOOGLE_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | Alt judge | Alternative judge backend |
 
-No Worlds-specific API keys are needed — the provider uses file-backed LibSQL databases
-under `data/providers/worlds/` so resumed runs can reuse already-ingested graph data.
+`GOOGLE_GENERATIVE_AI_API_KEY` is used both for the embedding service (search index)
+and as the judge/answer LLM backend when using Gemini models. The provider uses
+file-backed LibSQL databases under `data/providers/worlds/` so resumed runs can
+reuse already-ingested graph data.
 
 ## Phase mapping
 
 | Pipeline phase | Worlds mapping |
 |:----------------|:---------------|
 | **Ingest** | Session messages → RDF Turtle → `client.import()` |
-| **Index** | `client.rebuildSearchIndex()` — builds FTS/vector chunks from durable quads |
-| **Search** | `client.search({ query })` — hybrid keyword/vector search over literals |
+| **Index** | `client.rebuildSearchIndex()` — builds FTS5 + 768-dim vector chunks from durable quads |
+| **Search** | `client.search({ query })` — hybrid keyword + vector search (RRF fusion) with per-term fallback |
 | **Answer** | MemoryBench judge layer (unchanged) — configurable LLM via `-j` |
 | **Evaluate** | MemoryBench judge (unchanged) — MemScore reporting |
 
@@ -34,6 +36,8 @@ bun run src/index.ts run -p worlds -b locomo -l 5 -j gemini-2.5-flash -m gemini-
 ## Design notes
 
 - **File-backed storage**: each MemoryBench `containerTag` gets its own LibSQL file under `data/providers/worlds/`, avoiding cross-question state leaks while preserving data for resumed runs.
-- **Index rebuild**: `rebuildSearchIndex()` is called after ingest so newly imported triples are discoverable via `search()`.
+- **Hybrid search**: When `GOOGLE_GENERATIVE_AI_API_KEY` is set, the search index uses Gemini text-embedding-004 (768-dim vectors) alongside FTS5 keyword search, fused via Reciprocal Rank Fusion (RRF). Without the key, search falls back to keyword-only mode.
+- **Per-term fallback**: FTS5 uses implicit AND between terms, so long natural-language queries often match nothing. The provider extracts content terms (filtering stopwords) and retries individual terms, merging results by best score.
+- **Index rebuild**: `rebuildSearchIndex()` is called after ingest so newly imported triples are discoverable via `search()`. Import uses `deferSearchIndexOnImport` to skip per-commit indexing during bulk loads.
 - **Search results**: Worlds returns `(id, subject, predicate, graph, text, score)` — mapped to MemoryBench's generic `SearchResult` shape.
 - **SPARQL**: This provider stub uses the basic keyword search path. Future iterations may wire `client.sparql()` for structured follow-up queries (see `executeSparql` in `worlds-client-evals`).

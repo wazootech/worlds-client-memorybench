@@ -18,6 +18,7 @@ import { logger } from "../../utils/logger"
 import { WORLDS_PROMPTS } from "./prompts"
 import { TURTLE_PREFIXES, RDF, SCHEMA, PROV, XSD } from "./ontology"
 import { validateGraph } from "./shapes"
+import { GeminiEmbeddingService, GEMINI_EMBEDDING_DIMENSIONS } from "./embedding"
 
 /**
  * WorldsProvider implements the Provider interface for @worlds/client.
@@ -39,8 +40,10 @@ export class WorldsProvider implements Provider {
   private clients = new Map<string, Client>()
   private documentIds = new Map<string, string[]>()
   private baseDir = join(process.cwd(), "data", "providers", "worlds")
+  private apiKey = ""
 
   async initialize(config: ProviderConfig): Promise<void> {
+    this.apiKey = config.apiKey
     await mkdir(this.baseDir, { recursive: true })
     this.clients.clear()
     this.documentIds.clear()
@@ -55,9 +58,15 @@ export class WorldsProvider implements Provider {
     const dbPath = join(this.baseDir, `${sanitizePath(containerTag)}.db`)
     const libsqlClient = createClient({ url: `file:${dbPath}` })
     const queryEngine = new QueryEngine()
+    const embeddingService = this.apiKey
+      ? new GeminiEmbeddingService(this.apiKey)
+      : undefined
     const client = new Client(
       await createLibsqlClientOptions({
         client: libsqlClient,
+        embeddingService,
+        vectorDimensions: embeddingService ? GEMINI_EMBEDDING_DIMENSIONS : undefined,
+        deferSearchIndexOnImport: true,
         createSparqlEngine: ({ libsqlStore }) =>
           new ComunicaSparqlEngine({ queryEngine, store: libsqlStore }),
       })
@@ -154,31 +163,7 @@ export class WorldsProvider implements Provider {
   async search(query: string, options: SearchOptions): Promise<unknown[]> {
     const client = await this.getClient(options.containerTag)
 
-    // Try full query first. FTS5 uses AND between terms after stopword removal,
-    // so long questions often match nothing. Fall back to per-term OR-style
-    // search and merge via best-score dedup.
-    const response = await client.search({ query })
-    let results = response.results ?? []
-
-    if (results.length === 0) {
-      const terms = extractContentTerms(query)
-      if (terms.length > 1) {
-        const seen = new Map<string, (typeof results)[0]>()
-        for (const term of terms) {
-          const partial = await client.search({ query: term })
-          for (const r of partial.results ?? []) {
-            const existing = seen.get(r.id)
-            if (!existing || r.score > existing.score) {
-              seen.set(r.id, r)
-            }
-          }
-        }
-        results = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, 100)
-        logger.info(`Worlds search broadened: "${query.slice(0, 50)}…" → ${terms.length} terms → ${results.length} results`)
-      }
-    } else {
-      logger.debug(`Worlds search: "${query.slice(0, 50)}…" → ${results.length} results`)
-    }
+    const results = await searchWithFallback(client, query)
 
     return results.map((r) => ({
       sessionId: r.id,
@@ -197,6 +182,46 @@ export class WorldsProvider implements Provider {
     await rm(dbPath, { force: true })
     logger.info(`Cleared Worlds provider state for ${containerTag}`)
   }
+}
+
+type SearchResponse = Awaited<ReturnType<Client["search"]>>
+type SearchResult = NonNullable<SearchResponse["results"]>[number]
+
+async function runSearch(client: Client, query: string): Promise<SearchResult[]> {
+  const response = await client.search({ query })
+  return response.results ?? []
+}
+
+/**
+ * Try the full query first. FTS5 uses AND between terms after stopword
+ * removal, so long natural-language questions often match nothing.
+ * Fall back to per-term OR-style search and merge via best-score dedup.
+ * With embeddings active the primary hybrid search handles most queries
+ * directly, but the fallback still catches degraded keyword-only mode.
+ */
+async function searchWithFallback(client: Client, query: string): Promise<SearchResult[]> {
+  const results = await runSearch(client, query)
+  if (results.length > 0) {
+    logger.debug(`Worlds search: "${query.slice(0, 50)}…" → ${results.length} results`)
+    return results
+  }
+
+  const terms = extractContentTerms(query)
+  if (terms.length <= 1) return results
+
+  const seen = new Map<string, SearchResult>()
+  for (const term of terms) {
+    for (const r of await runSearch(client, term)) {
+      const existing = seen.get(r.id)
+      if (!existing || r.score > existing.score) {
+        seen.set(r.id, r)
+      }
+    }
+  }
+
+  const merged = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, 100)
+  logger.info(`Worlds search broadened: "${query.slice(0, 50)}…" → ${terms.length} terms → ${merged.length} results`)
+  return merged
 }
 
 const STOPWORDS = new Set([
