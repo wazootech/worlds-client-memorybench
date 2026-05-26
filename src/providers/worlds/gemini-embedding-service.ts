@@ -30,7 +30,9 @@ export class GeminiEmbeddingService implements EmbeddingService {
       values: texts,
     })
 
-    logger.debug(`Gemini embed: ${texts.length} texts → ${embeddings.length} vectors (${embeddings[0]?.length ?? 0}d)`)
+    logger.debug(
+      `Gemini embed: ${texts.length} texts → ${embeddings.length} vectors (${embeddings[0]?.length ?? 0}d)`
+    )
 
     return embeddings.map((e) => new Float32Array(e))
   }

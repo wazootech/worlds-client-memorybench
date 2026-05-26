@@ -58,9 +58,7 @@ export class WorldsProvider implements Provider {
     const dbPath = join(this.baseDir, `${sanitizePath(containerTag)}.db`)
     const libsqlClient = createClient({ url: `file:${dbPath}` })
     const queryEngine = new QueryEngine()
-    const embeddingService = this.apiKey
-      ? new GeminiEmbeddingService(this.apiKey)
-      : undefined
+    const embeddingService = this.apiKey ? new GeminiEmbeddingService(this.apiKey) : undefined
     const client = new Client(
       await createLibsqlClientOptions({
         client: libsqlClient,
@@ -98,10 +96,7 @@ export class WorldsProvider implements Provider {
     const { sessionId, messages, metadata } = session
     const sessionUri = `urn:session:${sessionId}`
 
-    const date =
-      (metadata?.formattedDate as string) ||
-      (metadata?.date as string) ||
-      "unknown"
+    const date = (metadata?.formattedDate as string) || (metadata?.date as string) || "unknown"
 
     const lines: string[] = [TURTLE_PREFIXES, ""]
 
@@ -109,7 +104,7 @@ export class WorldsProvider implements Provider {
     lines.push(
       `<${sessionUri}> <${RDF.type}> <${SCHEMA.Conversation}> .`,
       `<${sessionUri}> <${RDF.type}> <${PROV.Activity}> .`,
-      `<${sessionUri}> <${SCHEMA.dateCreated}> "${date}" .`,
+      `<${sessionUri}> <${SCHEMA.dateCreated}> "${date}" .`
     )
 
     // Message nodes with typed predicates and provenance
@@ -126,7 +121,7 @@ export class WorldsProvider implements Provider {
         `<${msgUri}> <${SCHEMA.text}> "${escapedContent}" .`,
         `<${msgUri}> <${SCHEMA.position}> "${idx}"^^<${XSD.integer}> .`,
         `<${msgUri}> <${SCHEMA.author}> "${msg.role}" .`,
-        `<${msgUri}> <${PROV.wasGeneratedBy}> <${sessionUri}> .`,
+        `<${msgUri}> <${PROV.wasGeneratedBy}> <${sessionUri}> .`
       )
     }
 
@@ -151,7 +146,7 @@ export class WorldsProvider implements Provider {
     const indexResult = await client.rebuildSearchIndex()
     logger.info(
       `Worlds: rebuilt search index for ${containerTag} — ` +
-      `${indexResult.processedQuadCount} quads processed, ${indexResult.chunkRowCount} chunk rows`
+        `${indexResult.processedQuadCount} quads processed, ${indexResult.chunkRowCount} chunk rows`
     )
     onProgress?.({
       completedIds: result.documentIds,
@@ -220,17 +215,68 @@ async function searchWithFallback(client: Client, query: string): Promise<Search
   }
 
   const merged = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, 100)
-  logger.info(`Worlds search broadened: "${query.slice(0, 50)}…" → ${terms.length} terms → ${merged.length} results`)
+  logger.info(
+    `Worlds search broadened: "${query.slice(0, 50)}…" → ${terms.length} terms → ${merged.length} results`
+  )
   return merged
 }
 
 const STOPWORDS = new Set([
-  "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
-  "did", "do", "does", "for", "from", "had", "has", "have", "how", "i",
-  "if", "in", "into", "is", "it", "its", "me", "my", "not", "of", "on",
-  "or", "our", "please", "that", "the", "their", "these", "those", "this",
-  "to", "us", "was", "we", "were", "what", "when", "where", "which", "who",
-  "why", "with", "you", "your",
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "been",
+  "being",
+  "but",
+  "by",
+  "did",
+  "do",
+  "does",
+  "for",
+  "from",
+  "had",
+  "has",
+  "have",
+  "how",
+  "i",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "me",
+  "my",
+  "not",
+  "of",
+  "on",
+  "or",
+  "our",
+  "please",
+  "that",
+  "the",
+  "their",
+  "these",
+  "those",
+  "this",
+  "to",
+  "us",
+  "was",
+  "we",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+  "you",
+  "your",
 ])
 
 function extractContentTerms(query: string): string[] {
