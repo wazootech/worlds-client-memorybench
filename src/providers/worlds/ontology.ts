@@ -33,6 +33,7 @@ export const SCHEMA = Object.freeze({
   dateCreated: "http://schema.org/dateCreated",
   position: "http://schema.org/position",
   author: "http://schema.org/author",
+  creator: "http://schema.org/creator",
   hasPart: "http://schema.org/hasPart",
 } as const)
 
@@ -56,6 +57,8 @@ export const WORLDS = Object.freeze({
   claimType: "https://worlds.wazoo.dev/ns/memory#claimType",
   confidence: "https://worlds.wazoo.dev/ns/memory#confidence",
   sourceSpan: "https://worlds.wazoo.dev/ns/memory#sourceSpan",
+  speakerA: "https://worlds.wazoo.dev/ns/memory#speakerA",
+  speakerB: "https://worlds.wazoo.dev/ns/memory#speakerB",
 } as const)
 
 export const TURTLE_PREFIXES = [

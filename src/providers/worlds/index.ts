@@ -16,7 +16,7 @@ import type {
 import type { UnifiedSession } from "../../types/unified"
 import { logger } from "../../utils/logger"
 import { WORLDS_PROMPTS } from "./prompts"
-import { TURTLE_PREFIXES, RDF, SCHEMA, PROV, XSD } from "./ontology"
+import { TURTLE_PREFIXES, RDF, SCHEMA, PROV, XSD, WORLDS } from "./ontology"
 import { validateGraph } from "./shapes"
 import { GeminiEmbeddingService, GEMINI_EMBEDDING_DIMENSIONS } from "./gemini-embedding-service"
 
@@ -100,12 +100,21 @@ export class WorldsProvider implements Provider {
 
     const lines: string[] = [TURTLE_PREFIXES, ""]
 
+    const speakerA = metadata?.speakerA as string | undefined
+    const speakerB = metadata?.speakerB as string | undefined
+
     // Session node: schema:Conversation + prov:Activity
     lines.push(
       `<${sessionUri}> <${RDF.type}> <${SCHEMA.Conversation}> .`,
       `<${sessionUri}> <${RDF.type}> <${PROV.Activity}> .`,
       `<${sessionUri}> <${SCHEMA.dateCreated}> "${date}" .`
     )
+    if (speakerA) {
+      lines.push(`<${sessionUri}> <${WORLDS.speakerA}> "${escapeTurtleLiteral(speakerA)}" .`)
+    }
+    if (speakerB) {
+      lines.push(`<${sessionUri}> <${WORLDS.speakerB}> "${escapeTurtleLiteral(speakerB)}" .`)
+    }
 
     // Message nodes with typed predicates and provenance
     for (let idx = 0; idx < messages.length; idx++) {
@@ -123,6 +132,11 @@ export class WorldsProvider implements Provider {
         `<${msgUri}> <${SCHEMA.author}> "${msg.role}" .`,
         `<${msgUri}> <${PROV.wasGeneratedBy}> <${sessionUri}> .`
       )
+      if (msg.speaker) {
+        lines.push(
+          `<${msgUri}> <${SCHEMA.creator}> "${escapeTurtleLiteral(msg.speaker)}" .`
+        )
+      }
     }
 
     const turtle = lines.join("\n")
@@ -160,14 +174,7 @@ export class WorldsProvider implements Provider {
 
     const results = await searchWithFallback(client, query)
 
-    return results.map((r) => ({
-      sessionId: r.id,
-      text: r.text,
-      score: r.score,
-      subject: r.subject,
-      predicate: r.predicate,
-      graph: r.graph,
-    }))
+    return enrichSearchResults(client, results)
   }
 
   async clear(containerTag: string): Promise<void> {
@@ -181,6 +188,94 @@ export class WorldsProvider implements Provider {
 
 type SearchResponse = Awaited<ReturnType<Client["search"]>>
 type SearchResult = NonNullable<SearchResponse["results"]>[number]
+
+interface EnrichedSearchResult {
+  sessionId: string
+  text: string
+  score: number
+  subject: string
+  predicate: string
+  graph: string
+  sessionDate?: string
+  speaker?: string
+  speakerA?: string
+  speakerB?: string
+}
+
+/**
+ * Resolves session dates, speaker names, and participant metadata for each
+ * search result via a single batched SPARQL SELECT query.
+ */
+async function enrichSearchResults(
+  client: Client,
+  results: SearchResult[]
+): Promise<EnrichedSearchResult[]> {
+  const base: EnrichedSearchResult[] = results.map((r) => ({
+    sessionId: r.id,
+    text: r.text,
+    score: r.score,
+    subject: r.subject,
+    predicate: r.predicate,
+    graph: r.graph,
+  }))
+
+  if (base.length === 0) return base
+
+  const msgUris = [...new Set(base.map((r) => r.subject))]
+  const valuesClause = msgUris.map((uri) => `<${uri}>`).join(" ")
+
+  const query = `
+    SELECT ?msg ?date ?speaker ?speakerA ?speakerB WHERE {
+      VALUES ?msg { ${valuesClause} }
+      ?msg <${PROV.wasGeneratedBy}> ?session .
+      ?session <${SCHEMA.dateCreated}> ?date .
+      OPTIONAL { ?msg <${SCHEMA.creator}> ?speaker }
+      OPTIONAL { ?session <${WORLDS.speakerA}> ?speakerA }
+      OPTIONAL { ?session <${WORLDS.speakerB}> ?speakerB }
+    }
+  `
+
+  try {
+    const response = await client.sparql({ query })
+
+    if (response.kind !== "select") return base
+
+    const metaMap = new Map<
+      string,
+      { date?: string; speaker?: string; speakerA?: string; speakerB?: string }
+    >()
+
+    const str = (v?: { value: string | object }): string | undefined =>
+      v && typeof v.value === "string" ? v.value : undefined
+
+    for (const binding of response.data.results.bindings) {
+      const msgUri = str(binding.msg)
+      if (!msgUri) continue
+      metaMap.set(msgUri, {
+        date: str(binding.date),
+        speaker: str(binding.speaker),
+        speakerA: str(binding.speakerA),
+        speakerB: str(binding.speakerB),
+      })
+    }
+
+    for (const r of base) {
+      const meta = metaMap.get(r.subject)
+      if (meta) {
+        r.sessionDate = meta.date
+        r.speaker = meta.speaker
+        r.speakerA = meta.speakerA
+        r.speakerB = meta.speakerB
+      }
+    }
+
+    logger.debug(`SPARQL enrichment: resolved metadata for ${metaMap.size}/${base.length} results`)
+  } catch (err) {
+    logger.warn(`SPARQL enrichment failed, returning unenriched results: ${err}`)
+  }
+
+  return base
+}
 
 async function runSearch(client: Client, query: string): Promise<SearchResult[]> {
   const response = await client.search({ query })
