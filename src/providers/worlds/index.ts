@@ -18,7 +18,7 @@ import { logger } from "../../utils/logger"
 import { WORLDS_PROMPTS } from "./prompts"
 import { TURTLE_PREFIXES, RDF, SCHEMA, PROV, XSD } from "./ontology"
 import { validateGraph } from "./shapes"
-import { GeminiEmbeddingService, GEMINI_EMBEDDING_DIMENSIONS } from "./embedding"
+import { GeminiEmbeddingService, GEMINI_EMBEDDING_DIMENSIONS } from "./gemini-embedding-service"
 
 /**
  * WorldsProvider implements the Provider interface for @worlds/client.
@@ -64,7 +64,7 @@ export class WorldsProvider implements Provider {
         client: libsqlClient,
         embeddingService,
         vectorDimensions: embeddingService ? GEMINI_EMBEDDING_DIMENSIONS : undefined,
-        deferSearchIndexOnImport: true,
+        searchIndexOnImport: false,
         createSparqlEngine: ({ libsqlStore }) =>
           new ComunicaSparqlEngine({ queryEngine, store: libsqlStore }),
       })

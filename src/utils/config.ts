@@ -31,7 +31,7 @@ export function getProviderConfig(provider: string): { apiKey: string; baseUrl?:
     case "rag":
       return { apiKey: config.openaiApiKey } // RAG provider uses OpenAI for embeddings
     case "worlds":
-      return { apiKey: config.openaiApiKey } // Worlds uses OpenAI-compatible API key
+      return { apiKey: config.googleApiKey }
     default:
       throw new Error(`Unknown provider: ${provider}`)
   }

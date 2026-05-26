@@ -30,8 +30,18 @@ reuse already-ingested graph data.
 ```bash
 bun install
 cp .env.example .env.local   # add API keys
-bun run src/index.ts run -p worlds -b locomo -l 5 -j gemini-2.5-flash -m gemini-2.5-flash-lite
+
+# 1. Ingest + index once (builds LibSQL DBs + embedding vectors)
+bun run src/index.ts run -p worlds -b locomo -l 5 -r smoke-001 -j gemini-2.5-flash -m gemini-2.5-flash
+
+# 2. Iterate on search/answer/evaluate — reuses ingested data, zero re-embedding cost
+bun run src/index.ts run -r smoke-001 -f search -j gemini-2.5-flash -m gemini-2.5-flash
 ```
+
+Use `-f search` to skip ingest and indexing on subsequent runs. The file-backed
+LibSQL databases persist under `data/providers/worlds/`, so only the LLM
+answer + judge calls are repeated. Change `-j` or `-m` between iterations to
+compare different models against the same indexed data.
 
 ## Design notes
 
