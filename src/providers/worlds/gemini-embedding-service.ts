@@ -7,13 +7,40 @@ export type { EmbeddingService }
 
 export const GEMINI_EMBEDDING_DIMENSIONS = 768
 const MAX_BATCH_SIZE = 100
+const QUOTA_RPM = 2500
+const QUOTA_WINDOW_MS = 60_000
+
+/**
+ * Module-level sliding-window rate limiter shared across all
+ * GeminiEmbeddingService instances. Each batch of N texts counts as
+ * N requests against the Gemini quota (3000 RPM).
+ */
+const requestTimestamps: number[] = []
+async function waitForQuota(requestCount: number): Promise<void> {
+  const now = Date.now()
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < now - QUOTA_WINDOW_MS) {
+    requestTimestamps.shift()
+  }
+  const currentUsage = requestTimestamps.length
+  if (currentUsage + requestCount > QUOTA_RPM) {
+    const oldest = requestTimestamps[0] ?? now
+    const waitMs = oldest + QUOTA_WINDOW_MS - now + 1000
+    logger.debug(`Rate limiter: ${currentUsage}/${QUOTA_RPM} used, waiting ${(waitMs / 1000).toFixed(1)}s`)
+    await new Promise((resolve) => setTimeout(resolve, waitMs))
+    return waitForQuota(requestCount)
+  }
+  for (let i = 0; i < requestCount; i++) {
+    requestTimestamps.push(Date.now())
+  }
+}
 
 /**
  * GeminiEmbeddingService implements @worlds/client's EmbeddingService interface
  * using Google's gemini-embedding-2 via the Vercel AI SDK.
  *
  * Gemini's BatchEmbedContents API caps at 100 items per request, so we chunk
- * internally. Output is truncated to 768 dimensions (auto-normalized by the model).
+ * internally. A module-level rate limiter ensures parallel containers stay
+ * under the 3000 RPM quota. Output is truncated to 768 dimensions.
  */
 export class GeminiEmbeddingService implements EmbeddingService {
   private readonly model
@@ -30,6 +57,7 @@ export class GeminiEmbeddingService implements EmbeddingService {
 
     for (let i = 0; i < texts.length; i += MAX_BATCH_SIZE) {
       const batch = texts.slice(i, i + MAX_BATCH_SIZE)
+      await waitForQuota(batch.length)
       try {
         const { embeddings } = await embedMany({
           model: this.model,

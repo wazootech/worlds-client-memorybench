@@ -19,6 +19,13 @@ import { WORLDS_PROMPTS } from "./prompts"
 import { TURTLE_PREFIXES, RDF, SCHEMA, PROV, XSD, WORLDS } from "./ontology"
 import { validateGraph } from "./shapes"
 import { GeminiEmbeddingService, GEMINI_EMBEDDING_DIMENSIONS } from "./gemini-embedding-service"
+import { extractFactsToTurtle } from "./extraction"
+
+let sharedQueryEngine: QueryEngine | undefined
+function getSharedQueryEngine(): QueryEngine {
+  if (!sharedQueryEngine) sharedQueryEngine = new QueryEngine()
+  return sharedQueryEngine
+}
 
 /**
  * WorldsProvider implements the Provider interface for @worlds/client.
@@ -33,8 +40,8 @@ export class WorldsProvider implements Provider {
   prompts = WORLDS_PROMPTS
   concurrency = {
     default: 10,
-    ingest: 10,
-    indexing: 10,
+    ingest: 2,
+    indexing: 2,
   }
 
   private clients = new Map<string, Client>()
@@ -57,7 +64,7 @@ export class WorldsProvider implements Provider {
     await mkdir(this.baseDir, { recursive: true })
     const dbPath = join(this.baseDir, `${sanitizePath(containerTag)}.db`)
     const libsqlClient = createClient({ url: `file:${dbPath}` })
-    const queryEngine = new QueryEngine()
+    const queryEngine = getSharedQueryEngine()
     const embeddingService = this.apiKey ? new GeminiEmbeddingService(this.apiKey) : undefined
     const client = new Client(
       await createLibsqlClientOptions({
@@ -83,6 +90,21 @@ export class WorldsProvider implements Provider {
       await client.import({
         source: { kind: "serialized", data: turtle, contentType: "text/turtle" },
       })
+
+      if (this.apiKey) {
+        try {
+          const cacheDir = join(this.baseDir, "claims-cache", sanitizePath(options.containerTag))
+          const factsTurtle = await extractFactsToTurtle(this.apiKey, session, { cacheDir })
+          if (factsTurtle) {
+            await client.import({
+              source: { kind: "serialized", data: factsTurtle, contentType: "text/turtle" },
+            })
+            logger.debug(`Imported extracted facts for session ${session.sessionId}`)
+          }
+        } catch (err) {
+          logger.warn(`Fact extraction failed for ${session.sessionId}, continuing: ${err}`)
+        }
+      }
 
       ids.push(session.sessionId)
       logger.debug(`Ingested session ${session.sessionId} with ${session.messages.length} messages`)
@@ -172,9 +194,22 @@ export class WorldsProvider implements Provider {
   async search(query: string, options: SearchOptions): Promise<unknown[]> {
     const client = await this.getClient(options.containerTag)
 
-    const results = await searchWithFallback(client, query)
+    const [searchResults, factClaimsRaw] = await Promise.all([
+      searchWithFallback(client, query).then((r) => enrichSearchResults(client, r)),
+      queryFactClaims(client, query),
+    ])
 
-    return enrichSearchResults(client, results)
+    const first10 = searchResults.slice(0, 10)
+    const rest = searchResults.slice(10)
+    const searchCorpus = first10.map((r) => (r.text ?? "").toLowerCase()).join("\n")
+
+    const factClaims = factClaimsRaw.filter((f) => {
+      const c = f.claimText.toLowerCase().trim()
+      if (c.length < 20) return true
+      return !searchCorpus.includes(c.slice(0, Math.min(80, c.length)))
+    })
+
+    return [...first10, ...factClaims, ...rest]
   }
 
   async clear(containerTag: string): Promise<void> {
@@ -182,6 +217,8 @@ export class WorldsProvider implements Provider {
     this.documentIds.delete(containerTag)
     const dbPath = join(this.baseDir, `${sanitizePath(containerTag)}.db`)
     await rm(dbPath, { force: true })
+    const cachePath = join(this.baseDir, "claims-cache", sanitizePath(containerTag))
+    await rm(cachePath, { recursive: true, force: true })
     logger.info(`Cleared Worlds provider state for ${containerTag}`)
   }
 }
@@ -275,6 +312,208 @@ async function enrichSearchResults(
   }
 
   return base
+}
+
+interface FactClaimResult {
+  isClaim: true
+  claimText: string
+  claimType: string
+  subject: string
+  action: string
+  object: string
+  when?: string
+  where?: string
+  sessionUri?: string
+  sessionDate?: string
+}
+
+function escapeSparqlSubstring(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+}
+
+/** Proper nouns / capitalized tokens (e.g. person names) for structured matching. */
+function extractQueryEntities(query: string): string[] {
+  const noise = new Set([
+    "what",
+    "when",
+    "where",
+    "who",
+    "why",
+    "which",
+    "how",
+    "the",
+    "and",
+    "but",
+    "this",
+    "that",
+    "these",
+    "those",
+    "did",
+    "does",
+    "with",
+    "from",
+    "your",
+    "you",
+    "she",
+    "her",
+    "his",
+    "for",
+    "are",
+    "was",
+    "were",
+    "has",
+    "have",
+    "had",
+    "not",
+    "any",
+    "all",
+    "can",
+    "may",
+    "will",
+    "would",
+    "could",
+    "should",
+  ])
+  const seen = new Set<string>()
+  for (const m of query.matchAll(/\b[A-Z][a-z]{2,}\b/g)) {
+    const w = m[0].toLowerCase()
+    if (!noise.has(w)) seen.add(w)
+  }
+  return [...seen]
+}
+
+function buildTextMatchClause(terms: string[], joiner: "&&" | "||"): string {
+  if (terms.length === 0) return "true"
+  const op = ` ${joiner} `
+  return terms.map((t) => `CONTAINS(LCASE(?claimText), "${escapeSparqlSubstring(t)}")`).join(op)
+}
+
+function buildEntityMatchClause(entities: string[]): string {
+  if (entities.length === 0) return "true"
+  return entities
+    .map((e) => {
+      const x = escapeSparqlSubstring(e)
+      return (
+        `CONTAINS(LCASE(?claimText), "${x}") || CONTAINS(LCASE(STR(?subj)), "${x}") || ` +
+        `CONTAINS(LCASE(STR(?action)), "${x}") || CONTAINS(LCASE(STR(?obj)), "${x}")`
+      )
+    })
+    .join(" || ")
+}
+
+function parseFactBindings(response: unknown): FactClaimResult[] {
+  if (
+    typeof response !== "object" ||
+    response === null ||
+    (response as { kind?: string }).kind !== "select"
+  ) {
+    return []
+  }
+  const data = (response as { data: { results: { bindings: Record<string, { value: string | object }>[] } } })
+    .data
+  if (!data?.results?.bindings) return []
+
+  const str = (v?: { value: string | object }): string | undefined =>
+    v && typeof v.value === "string" ? v.value : undefined
+
+  const claims: FactClaimResult[] = []
+  for (const binding of data.results.bindings) {
+    const claimText = str(binding.claimText)
+    if (!claimText) continue
+
+    const typeUri = str(binding.type) || ""
+    const claimType = typeUri.split("#").pop() || "Claim"
+
+    claims.push({
+      isClaim: true,
+      claimText,
+      claimType,
+      subject: str(binding.subj) || "",
+      action: str(binding.action) || "",
+      object: str(binding.obj) || "",
+      when: str(binding.when),
+      where: str(binding.where),
+      sessionUri: str(binding.session),
+      sessionDate: str(binding.sessionDate),
+    })
+  }
+  return claims
+}
+
+async function runFactClaimSparql(
+  client: Client,
+  textClause: string,
+  entityClause: string,
+  limit: number
+): Promise<FactClaimResult[]> {
+  const sparql = `
+    SELECT ?claim ?claimText ?type ?subj ?action ?obj ?when ?where ?session ?sessionDate WHERE {
+      ?claim <${RDF.type}> <${WORLDS.Claim}> .
+      ?claim <${WORLDS.claimText}> ?claimText .
+      ?claim <${RDF.type}> ?type .
+      ?claim <${WORLDS.claimSubject}> ?subj .
+      OPTIONAL { ?claim <${WORLDS.claimAction}> ?action }
+      OPTIONAL { ?claim <${WORLDS.claimObject}> ?obj }
+      OPTIONAL { ?claim <${WORLDS.claimWhen}> ?when }
+      OPTIONAL { ?claim <${WORLDS.claimWhere}> ?where }
+      OPTIONAL {
+        ?claim <${PROV.wasDerivedFrom}> ?session .
+        OPTIONAL { ?session <${SCHEMA.dateCreated}> ?sessionDate }
+      }
+      FILTER(?type != <${WORLDS.Claim}>)
+      FILTER( ( ${entityClause} ) && ( ${textClause} ) )
+    }
+    LIMIT ${limit}
+  `
+
+  try {
+    const response = await client.sparql({ query: sparql })
+    return parseFactBindings(response)
+  } catch (err) {
+    logger.warn(`SPARQL fact claim query failed: ${err}`)
+    return []
+  }
+}
+
+/**
+ * Queries extracted fact claims via SPARQL: entity-aware matching on
+ * subject/action/object/claimText, AND-first on keywords for precision,
+ * OR fallback for recall. LIMIT 8 for latency.
+ */
+async function queryFactClaims(
+  client: Client,
+  query: string
+): Promise<FactClaimResult[]> {
+  try {
+    const terms = extractContentTerms(query)
+    const entities = extractQueryEntities(query)
+    if (terms.length === 0 && entities.length === 0) return []
+
+    const entityClause = buildEntityMatchClause(entities)
+    const limit = 8
+
+    let claims: FactClaimResult[] = []
+
+    if (terms.length > 0) {
+      const textAnd = buildTextMatchClause(terms, "&&")
+      claims = await runFactClaimSparql(client, textAnd, entityClause, limit)
+      if (claims.length === 0 && terms.length > 1) {
+        const textOr = buildTextMatchClause(terms, "||")
+        claims = await runFactClaimSparql(client, textOr, entityClause, limit)
+      }
+    } else {
+      claims = await runFactClaimSparql(client, "true", entityClause, limit)
+    }
+
+    if (claims.length > 0) {
+      logger.debug(`SPARQL fact lookup: "${query.slice(0, 50)}…" → ${claims.length} claims`)
+    }
+
+    return claims
+  } catch (err) {
+    logger.warn(`SPARQL fact lookup failed: ${err}`)
+    return []
+  }
 }
 
 async function runSearch(client: Client, query: string): Promise<SearchResult[]> {

@@ -42,6 +42,7 @@ export const PROV = Object.freeze({
   Activity: "http://www.w3.org/ns/prov#Activity",
   Entity: "http://www.w3.org/ns/prov#Entity",
   wasGeneratedBy: "http://www.w3.org/ns/prov#wasGeneratedBy",
+  wasDerivedFrom: "http://www.w3.org/ns/prov#wasDerivedFrom",
   atTime: "http://www.w3.org/ns/prov#atTime",
   wasAttributedTo: "http://www.w3.org/ns/prov#wasAttributedTo",
 } as const)
@@ -54,11 +55,26 @@ export const SKOS = Object.freeze({
 
 export const WORLDS = Object.freeze({
   _iri: "https://worlds.wazoo.dev/ns/memory#",
+  // Structural metadata
   claimType: "https://worlds.wazoo.dev/ns/memory#claimType",
   confidence: "https://worlds.wazoo.dev/ns/memory#confidence",
   sourceSpan: "https://worlds.wazoo.dev/ns/memory#sourceSpan",
   speakerA: "https://worlds.wazoo.dev/ns/memory#speakerA",
   speakerB: "https://worlds.wazoo.dev/ns/memory#speakerB",
+  // Fact claim classes
+  Claim: "https://worlds.wazoo.dev/ns/memory#Claim",
+  FactClaim: "https://worlds.wazoo.dev/ns/memory#FactClaim",
+  EventClaim: "https://worlds.wazoo.dev/ns/memory#EventClaim",
+  PreferenceClaim: "https://worlds.wazoo.dev/ns/memory#PreferenceClaim",
+  RelationshipClaim: "https://worlds.wazoo.dev/ns/memory#RelationshipClaim",
+  PlanClaim: "https://worlds.wazoo.dev/ns/memory#PlanClaim",
+  // Fact claim predicates
+  claimSubject: "https://worlds.wazoo.dev/ns/memory#claimSubject",
+  claimAction: "https://worlds.wazoo.dev/ns/memory#claimAction",
+  claimObject: "https://worlds.wazoo.dev/ns/memory#claimObject",
+  claimText: "https://worlds.wazoo.dev/ns/memory#claimText",
+  claimWhen: "https://worlds.wazoo.dev/ns/memory#claimWhen",
+  claimWhere: "https://worlds.wazoo.dev/ns/memory#claimWhere",
 } as const)
 
 export const TURTLE_PREFIXES = [
