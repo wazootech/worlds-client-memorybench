@@ -57,6 +57,11 @@ export class WorldsProvider implements Provider {
     logger.info(`Initialized Worlds provider with file-backed LibSQL at ${this.baseDir}`)
   }
 
+  /** Exposed for agent tool-calling scripts that need direct SPARQL access. */
+  async getClientForContainer(containerTag: string): Promise<Client> {
+    return this.getClient(containerTag)
+  }
+
   private async getClient(containerTag: string): Promise<Client> {
     const existing = this.clients.get(containerTag)
     if (existing) return existing
