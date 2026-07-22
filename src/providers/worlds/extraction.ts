@@ -110,10 +110,7 @@ function escapeTurtle(value: string): string {
  * Converts extracted claims into RDF Turtle triples linked to their source session.
  * Uses deterministic URIs: urn:claim:{sessionId}/{index}
  */
-export function claimsToTurtle(
-  claims: ExtractedClaim[],
-  sessionId: string
-): string {
+export function claimsToTurtle(claims: ExtractedClaim[], sessionId: string): string {
   if (claims.length === 0) return ""
 
   const sessionUri = `urn:session:${sessionId}`
@@ -205,7 +202,10 @@ export async function extractFactsToTurtle(
 
   let claims: ExtractedClaim[]
   try {
-    const cleaned = text.trim().replace(/^```json?\s*/i, "").replace(/```\s*$/, "")
+    const cleaned = text
+      .trim()
+      .replace(/^```json?\s*/i, "")
+      .replace(/```\s*$/, "")
     claims = JSON.parse(cleaned) as ExtractedClaim[]
     if (!Array.isArray(claims)) {
       logger.warn(`Fact extraction for ${session.sessionId}: response was not an array`)

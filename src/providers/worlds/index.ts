@@ -160,9 +160,7 @@ export class WorldsProvider implements Provider {
         `<${msgUri}> <${PROV.wasGeneratedBy}> <${sessionUri}> .`
       )
       if (msg.speaker) {
-        lines.push(
-          `<${msgUri}> <${SCHEMA.creator}> "${escapeTurtleLiteral(msg.speaker)}" .`
-        )
+        lines.push(`<${msgUri}> <${SCHEMA.creator}> "${escapeTurtleLiteral(msg.speaker)}" .`)
       }
     }
 
@@ -414,8 +412,9 @@ function parseFactBindings(response: unknown): FactClaimResult[] {
   ) {
     return []
   }
-  const data = (response as { data: { results: { bindings: Record<string, { value: string | object }>[] } } })
-    .data
+  const data = (
+    response as { data: { results: { bindings: Record<string, { value: string | object }>[] } } }
+  ).data
   if (!data?.results?.bindings) return []
 
   const str = (v?: { value: string | object }): string | undefined =>
@@ -485,10 +484,7 @@ async function runFactClaimSparql(
  * subject/action/object/claimText, AND-first on keywords for precision,
  * OR fallback for recall. LIMIT 8 for latency.
  */
-async function queryFactClaims(
-  client: Client,
-  query: string
-): Promise<FactClaimResult[]> {
+async function queryFactClaims(client: Client, query: string): Promise<FactClaimResult[]> {
   try {
     const terms = extractContentTerms(query)
     const entities = extractQueryEntities(query)

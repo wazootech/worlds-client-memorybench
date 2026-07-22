@@ -52,7 +52,7 @@ export class GoogleJudge implements Judge {
     const explanation =
       `[majority ${correctVotes}/${passes}] ` +
       (score === 1
-        ? results.find((r) => r.score === 1)?.explanation ?? results[0].explanation
+        ? (results.find((r) => r.score === 1)?.explanation ?? results[0].explanation)
         : results.map((r) => r.explanation).join(" | "))
 
     return { score, label, explanation }

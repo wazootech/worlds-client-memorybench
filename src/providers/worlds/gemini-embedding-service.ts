@@ -25,7 +25,9 @@ async function waitForQuota(requestCount: number): Promise<void> {
   if (currentUsage + requestCount > QUOTA_RPM) {
     const oldest = requestTimestamps[0] ?? now
     const waitMs = oldest + QUOTA_WINDOW_MS - now + 1000
-    logger.debug(`Rate limiter: ${currentUsage}/${QUOTA_RPM} used, waiting ${(waitMs / 1000).toFixed(1)}s`)
+    logger.debug(
+      `Rate limiter: ${currentUsage}/${QUOTA_RPM} used, waiting ${(waitMs / 1000).toFixed(1)}s`
+    )
     await new Promise((resolve) => setTimeout(resolve, waitMs))
     return waitForQuota(requestCount)
   }
@@ -68,7 +70,9 @@ export class GeminiEmbeddingService implements EmbeddingService {
         })
         allVectors.push(...embeddings.map((e) => new Float32Array(e)))
       } catch (err) {
-        logger.error(`Gemini embed failed (batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}, ${batch.length} texts): ${err}`)
+        logger.error(
+          `Gemini embed failed (batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}, ${batch.length} texts): ${err}`
+        )
         throw err
       }
     }
