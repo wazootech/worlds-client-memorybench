@@ -33,7 +33,10 @@ function tokenize(text: string): string[] {
  * Returns a score between 0 and 1 representing the fraction of query terms found,
  * with a small frequency bonus for repeated matches.
  */
-function scoreDocument(queryTerms: string[], docText: string): { score: number; matchCount: number } {
+function scoreDocument(
+  queryTerms: string[],
+  docText: string
+): { score: number; matchCount: number } {
   if (queryTerms.length === 0) return { score: 0, matchCount: 0 }
 
   const docLower = docText.toLowerCase()

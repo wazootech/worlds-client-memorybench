@@ -105,7 +105,7 @@ export class CheckpointManager {
     // If we get here, all retries failed or it was a non-retriable error
     try {
       unlinkSync(tempPath)
-    } catch { }
+    } catch {}
     throw lastError
   }
 
@@ -284,12 +284,12 @@ export class CheckpointManager {
       evaluated: questions.filter((q) => q.phases.evaluate.status === "completed").length,
       ...(episodesTotal > 0
         ? {
-          indexingEpisodes: {
-            total: episodesTotal,
-            completed: episodesCompleted,
-            failed: episodesFailed,
-          },
-        }
+            indexingEpisodes: {
+              total: episodesTotal,
+              completed: episodesCompleted,
+              failed: episodesFailed,
+            },
+          }
         : {}),
     }
   }

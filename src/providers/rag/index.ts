@@ -30,7 +30,11 @@ const EMBEDDING_MODEL = "text-embedding-3-small"
  * Split text into overlapping chunks, attempting to break on sentence boundaries.
  * Follows the chunking approach from OpenClaw/QMD: ~400 tokens with overlap.
  */
-function chunkText(text: string, chunkSize: number = CHUNK_SIZE, overlap: number = CHUNK_OVERLAP): string[] {
+function chunkText(
+  text: string,
+  chunkSize: number = CHUNK_SIZE,
+  overlap: number = CHUNK_OVERLAP
+): string[] {
   if (text.length <= chunkSize) {
     return [text.trim()]
   }
@@ -103,7 +107,9 @@ export class RAGProvider implements Provider {
       throw new Error("RAG provider requires OPENAI_API_KEY for memory extraction and embeddings")
     }
     this.openai = createOpenAI({ apiKey: this.apiKey })
-    logger.info("Initialized RAG memory provider (OpenClaw/QMD-style with LLM extraction + hybrid search)")
+    logger.info(
+      "Initialized RAG memory provider (OpenClaw/QMD-style with LLM extraction + hybrid search)"
+    )
   }
 
   async ingest(sessions: UnifiedSession[], options: IngestOptions): Promise<IngestResult> {

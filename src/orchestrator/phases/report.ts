@@ -199,8 +199,7 @@ export function generateReport(benchmark: Benchmark, checkpoint: RunCheckpoint):
     if (qCheckpoint.phases.evaluate.status !== "completed") continue
     const answerPhase = qCheckpoint.phases.answer
     if (answerPhase.promptTokens != null) allPromptTokens.push(answerPhase.promptTokens)
-    if (answerPhase.basePromptTokens != null)
-      allBasePromptTokens.push(answerPhase.basePromptTokens)
+    if (answerPhase.basePromptTokens != null) allBasePromptTokens.push(answerPhase.basePromptTokens)
     if (answerPhase.contextTokens != null) allContextTokens.push(answerPhase.contextTokens)
   }
 

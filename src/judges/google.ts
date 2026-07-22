@@ -27,19 +27,35 @@ export class GoogleJudge implements Judge {
 
     const prompt = buildJudgePrompt(input)
 
-    const params: Record<string, unknown> = {
+    const baseParams: Record<string, unknown> = {
       model: this.client(this.modelConfig.id),
       prompt,
       maxTokens: this.modelConfig.defaultMaxTokens,
     }
 
     if (this.modelConfig.supportsTemperature) {
-      params.temperature = this.modelConfig.defaultTemperature
+      baseParams.temperature = this.modelConfig.defaultTemperature
     }
 
-    const { text } = await generateText(params as Parameters<typeof generateText>[0])
+    const passes = 3
+    const results: JudgeResult[] = []
+    for (let i = 0; i < passes; i++) {
+      const { text } = await generateText({
+        ...(baseParams as Parameters<typeof generateText>[0]),
+      } as Parameters<typeof generateText>[0])
+      results.push(parseJudgeResponse(text))
+    }
 
-    return parseJudgeResponse(text)
+    const correctVotes = results.filter((r) => r.score === 1).length
+    const score = correctVotes >= 2 ? 1 : 0
+    const label = score === 1 ? "correct" : "incorrect"
+    const explanation =
+      `[majority ${correctVotes}/${passes}] ` +
+      (score === 1
+        ? (results.find((r) => r.score === 1)?.explanation ?? results[0].explanation)
+        : results.map((r) => r.explanation).join(" | "))
+
+    return { score, label, explanation }
   }
 
   getPromptForQuestionType(questionType: string, providerPrompts?: ProviderPrompts): string {

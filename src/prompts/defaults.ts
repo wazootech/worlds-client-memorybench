@@ -26,7 +26,16 @@ Instructions:
 Answer:`
 }
 
+/** Semantic equivalence rules to reduce judge flip-flops on paraphrases. */
+const JUDGE_EQUIVALENCE_RUBRIC = `
+Equivalence rules (apply before scoring):
+- Treat related academic/career fields as overlapping when the ground truth lists multiple fields (e.g. "Psychology, counseling certification" matches answers that name counseling, mental health, therapy, or psychology without requiring every exact word).
+- Broader domain terms may satisfy narrower ground truth when clearly implied (e.g. "mental health" can satisfy "psychology" in an education/career context).
+- Minor spelling differences, punctuation, or ordering do not matter.
+- Be consistent: if two answers convey the same factual content, score them the same.`
+
 export const DEFAULT_JUDGE_PROMPT = `I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no.
+${JUDGE_EQUIVALENCE_RUBRIC}
 
 Respond with ONLY a JSON object:
 {"score": 1, "label": "correct", "explanation": "..."} if the response contains the correct answer
@@ -41,6 +50,7 @@ Respond with ONLY a JSON object:
 {"score": 0, "label": "incorrect", "explanation": "..."} if the system hallucinated an answer`
 
 export const TEMPORAL_JUDGE_PROMPT = `I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no. In addition, do not penalize off-by-one errors for the number of days. If the question asks for the number of days/weeks/months, etc., and the model makes off-by-one errors (e.g., predicting 19 days when the answer is 18), the model's response is still correct.
+${JUDGE_EQUIVALENCE_RUBRIC}
 
 Respond with ONLY a JSON object:
 {"score": 1, "label": "correct", "explanation": "..."} if the response contains the correct answer

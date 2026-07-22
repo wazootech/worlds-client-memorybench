@@ -125,11 +125,11 @@ export class SupermemoryProvider implements Provider {
       containerTag: options.containerTag,
       limit: 30,
       threshold: options.threshold || 0.3,
-			searchMode: "hybrid",
-			include: {
-				summaries: true,
-				chunks: true
-      }
+      searchMode: "hybrid",
+      include: {
+        summaries: true,
+        chunks: true,
+      },
     })
 
     return response.results || []
